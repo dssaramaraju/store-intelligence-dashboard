@@ -1,0 +1,11 @@
+__pycache__/
+.pytest_cache/
+.coverage
+htmlcov/
+*.pyc
+*.db
+data/*
+!data/
+!data/README.md
+events.jsonl
+.venv/
