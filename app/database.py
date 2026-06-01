@@ -94,3 +94,9 @@ def fetch_events(store_id: str | None = None) -> list[sqlite3.Row]:
     query += " ORDER BY timestamp ASC"
     with get_db() as conn:
         return list(conn.execute(query, args))
+
+
+def has_events() -> bool:
+    with get_db() as conn:
+        row = conn.execute("SELECT 1 FROM events LIMIT 1").fetchone()
+        return row is not None

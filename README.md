@@ -102,3 +102,17 @@ http://localhost:8000/dashboard
 ```
 
 The page polls live API endpoints and shows unique visitors, conversion rate, average dwell, queue depth, abandonment, funnel counts, heatmap zones, anomalies, and feed health.
+
+## Hosted Demo
+
+The app can run as a hosted demo without private dataset files. On an empty database it seeds a small demo event stream automatically unless `AUTO_SEED_DEMO=false` is set.
+
+Recommended Render settings:
+
+- Build command: `pip install -r requirements.txt`
+- Start command: `python -m uvicorn app.main:app --host 0.0.0.0 --port $PORT`
+- Environment:
+  - `AUTO_SEED_DEMO=true`
+  - `DEFAULT_STORE_ID=ST1008`
+
+The live dashboard path is `/dashboard`.

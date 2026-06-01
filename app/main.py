@@ -7,7 +7,7 @@ from uuid import uuid4
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 
-from app.database import init_db
+from app.database import has_events, init_db, insert_events
 from app.health import service_health
 from app.ingestion import ingest_events, parse_events_payload
 from app.metrics import compute_funnel, compute_heatmap, compute_metrics, detect_anomalies, event_quality_report
@@ -19,6 +19,10 @@ logger = logging.getLogger("store-intelligence")
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     init_db()
+    if os.getenv("AUTO_SEED_DEMO", "true").lower() in {"1", "true", "yes"} and not has_events():
+        from pipeline.detect import generate_demo_events
+
+        insert_events(generate_demo_events(os.getenv("DEFAULT_STORE_ID", "ST1008")))
     yield
 
 
