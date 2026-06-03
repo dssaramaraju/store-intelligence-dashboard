@@ -12,7 +12,7 @@ This keeps the computer-vision layer replaceable. The scoring API should not car
 Flow:
 
 ```text
-CCTV clips / sample_events.jsonl
+CCTV clips / sample_events*.jsonl / POS CSV
   -> pipeline.detect
   -> pipeline.emit JSONL
   -> POST /events/ingest
@@ -22,9 +22,9 @@ CCTV clips / sample_events.jsonl
 
 ## Detection Layer
 
-The included detector is dataset-aware and reads the provided CCTV MP4 files. It samples frames with OpenCV, applies background subtraction, extracts moving person-sized regions, estimates activity per camera, maps cameras to entry/floor/billing zones, and emits structured events with `metadata.cctv_detected=true`. It also uses Brigade Bangalore POS transactions for conversion correlation and reads `sample_events.jsonl` directly when present, so challenge-provided schema examples can be replayed without code changes.
+The included detector is dataset-aware and reads the provided CCTV MP4 files from the nested `updated_docs` store folders. It samples frames with OpenCV, applies background subtraction, extracts moving person-sized regions, estimates activity per camera, maps cameras to entry/floor/billing zones from filename roles, and emits structured events with `metadata.cctv_detected=true`. It also uses POS transactions for conversion correlation and normalizes challenge-provided source events from `sample_eventsbe42122.jsonl` into the required API schema.
 
-The provided layout file was an Excel workbook with embedded floor-plan images rather than structured rows. I converted it into `data/store_layout.json` with explicit zones, cameras, and open hours, and kept the original workbook as source evidence.
+The updated layout files are PNG floor plans rather than structured zone rows. I keep a conservative `store_layout.json` contract with explicit business zones and attach discovered layout PNG paths as metadata when the pipeline creates a layout file.
 
 In a production implementation I would improve `pipeline/detect.py` with:
 
@@ -34,7 +34,7 @@ In a production implementation I would improve `pipeline/detect.py` with:
 - Zone classification: point-in-polygon mapping from `store_layout.json`.
 - Staff detection: uniform-color classifier plus manually defined staff-only trajectories.
 
-The event generator uses stable UUIDv5 event IDs so repeated pipeline runs are idempotent when ingested. The current OpenCV detector is intentionally simple and explainable; it proves that the pipeline reads video frames, while keeping the model choice replaceable.
+The event generator uses stable UUIDv5 event IDs so repeated pipeline runs are idempotent when ingested. The current OpenCV detector is intentionally simple and explainable; it proves that the pipeline reads video frames, while keeping the model choice replaceable. The sample-event normalizer preserves original fields such as age bucket, group ID, queue wait, and source event type in metadata so reviewers can audit the translation.
 
 ## API Layer
 
@@ -74,3 +74,4 @@ The `/quality` endpoint exists specifically for reviewer verification. It report
 1. I used AI to pressure-test the event schema against the scoring endpoints. The useful suggestion was to keep conversion as metadata on billing-zone events instead of inventing an extra event type outside the catalogue. I accepted that because it preserves schema compliance.
 2. I used AI to compare SQLite vs PostgreSQL for a take-home container. The recommendation was SQLite for the default submission because it removes setup friction while preserving idempotency and queryability. I agreed, with the note that PostgreSQL would be the production upgrade.
 3. I used AI to evaluate whether low-confidence detections should be suppressed. The answer was to emit them with confidence and heatmap confidence flags. I accepted this because the prompt explicitly rewards confidence calibration over hiding hard cases.
+4. I used AI to identify the mismatch between the supplied `updated_docs` sample event rows and the required event schema. I accepted the suggestion to build a source normalizer instead of changing the API schema, because the challenge requires the final emitted stream to follow the fixed catalogue.

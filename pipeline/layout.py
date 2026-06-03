@@ -6,16 +6,14 @@ from typing import Any
 DEFAULT_LAYOUT = {
     "stores": [
         {
-            "store_id": "ST1008",
-            "store_name": "Brigade_Bangalore",
+            "store_id": "STORE_BLR_002",
+            "store_name": "Updated Challenge Store",
             "city": "Bangalore",
             "open_hours": {"open": "10:00", "close": "22:00"},
             "cameras": [
-                {"camera_id": "CAM_1", "file_pattern": "CAM 1.mp4", "name": "Entry camera", "covers_zones": ["ENTRY_THRESHOLD"]},
-                {"camera_id": "CAM_2", "file_pattern": "CAM 2.mp4", "name": "Main floor camera", "covers_zones": ["SKINCARE", "MAKEUP", "BATH_AND_BODY"]},
-                {"camera_id": "CAM_3", "file_pattern": "CAM 3.mp4", "name": "Billing camera", "covers_zones": ["BILLING"]},
-                {"camera_id": "CAM_4", "file_pattern": "CAM 4.mp4", "name": "Secondary floor camera", "covers_zones": ["HAIRCARE", "FRAGRANCE"]},
-                {"camera_id": "CAM_5", "file_pattern": "CAM 5.mp4", "name": "Secondary entry camera", "covers_zones": ["ENTRY_THRESHOLD"]},
+                {"camera_id": "CAM_ENTRY_01", "file_pattern": "*entry*.mp4", "name": "Entry/exit camera", "covers_zones": ["ENTRY_THRESHOLD"]},
+                {"camera_id": "CAM_FLOOR_01", "file_pattern": "*zone*.mp4", "name": "Main floor zone camera", "covers_zones": ["SKINCARE", "MAKEUP", "BATH_AND_BODY", "HAIRCARE", "FRAGRANCE"]},
+                {"camera_id": "CAM_BILL_01", "file_pattern": "*billing*.mp4", "name": "Billing counter camera", "covers_zones": ["BILLING"]},
             ],
             "zones": [
                 {"zone_id": "ENTRY_THRESHOLD", "name": "Entry/Exit threshold", "category": "entry"},
@@ -26,7 +24,7 @@ DEFAULT_LAYOUT = {
                 {"zone_id": "FRAGRANCE", "name": "Fragrance", "category": "sales_floor"},
                 {"zone_id": "BILLING", "name": "Billing counter", "category": "billing"},
             ],
-            "source_note": "Generated from the provided Brigade Road layout workbook, which contains embedded floor-plan images rather than structured zone rows.",
+            "source_note": "Generated from updated_docs layout PNGs and camera-role filenames supplied with the challenge dataset.",
         }
     ]
 }
@@ -35,7 +33,12 @@ DEFAULT_LAYOUT = {
 def ensure_layout_json(input_dir: Path) -> Path:
     output = input_dir / "store_layout.json"
     if not output.exists():
-        output.write_text(json.dumps(DEFAULT_LAYOUT, indent=2), encoding="utf-8")
+        layout_images = sorted(input_dir.rglob("*layout*.png"))
+        layout = DEFAULT_LAYOUT
+        if layout_images:
+            layout = json.loads(json.dumps(DEFAULT_LAYOUT))
+            layout["stores"][0]["metadata"] = {"layout_images": [str(path) for path in layout_images]}
+        output.write_text(json.dumps(layout, indent=2), encoding="utf-8")
     return output
 
 

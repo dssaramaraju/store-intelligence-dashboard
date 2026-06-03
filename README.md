@@ -12,9 +12,9 @@ A containerised offline retail analytics pipeline for the Purplle Engineering Hi
    ```bash
    curl http://localhost:8000/health
    ```
-3. Generate detector events from sample inputs:
+3. Generate detector events from the updated challenge inputs:
    ```bash
-   docker compose run --rm api python -m pipeline.run --input /data --output /tmp/events.jsonl
+   docker compose run --rm api python -m pipeline.run --input /app/updated_docs --output /tmp/events.jsonl
    ```
 4. Ingest generated events:
    ```bash
@@ -25,14 +25,14 @@ A containerised offline retail analytics pipeline for the Purplle Engineering Hi
 5. Query store intelligence:
    ```bash
    curl http://localhost:8000/metrics
-   curl http://localhost:8000/stores/ST1008/metrics
-   curl http://localhost:8000/stores/ST1008/funnel
-   curl http://localhost:8000/stores/ST1008/heatmap
-   curl http://localhost:8000/stores/ST1008/anomalies
-   curl http://localhost:8000/stores/ST1008/quality
+   curl http://localhost:8000/stores/STORE_BLR_002/metrics
+   curl http://localhost:8000/stores/STORE_BLR_002/funnel
+   curl http://localhost:8000/stores/STORE_BLR_002/heatmap
+   curl http://localhost:8000/stores/STORE_BLR_002/anomalies
+   curl http://localhost:8000/stores/STORE_BLR_002/quality
    ```
 
-This repository is configured for the provided Brigade Bangalore dataset. If no challenge dataset is mounted, the pipeline still generates a deterministic demo stream.
+This repository is configured for the new `updated_docs` challenge dataset. If no challenge dataset is mounted, the pipeline still generates a deterministic demo stream.
 
 ## What Is Included
 
@@ -78,20 +78,21 @@ While processing CCTV, the command prints progress per video:
 
 Expected optional files:
 
-- `store_layout.json`
-- `store_layout.xlsx`
-- `pos_transactions.csv`
-- `sample_events.jsonl`
-- `cctv/*.mp4`
+- `store_layout.json` or layout PNG files
+- POS CSV files with names containing `pos`
+- sample event JSONL files with names containing `sample` and `events`
+- CCTV MP4 files anywhere under the input directory
 
 The current implementation uses OpenCV to read the CCTV videos, sample frames, detect moving person-sized regions, and emit structured events. POS transactions are then used to mark billing-zone conversions. The video stage remains an adapter boundary: a YOLO/ByteTrack/ReID implementation can replace `pipeline/detect.py` without changing the event schema or API.
 
 For this dataset:
 
-- Store: `ST1008` / `Brigade_Bangalore`
-- Layout source: `data/store_layout.xlsx`, converted into `data/store_layout.json`
-- POS source: `data/pos_transactions.csv`
-- CCTV source: `data/cctv/CAM 1.mp4` through `CAM 5.mp4`
+- Default store: `STORE_BLR_002`
+- Source event example store: `ST1076`, normalized from `store_1076` and `ST1076` rows in `updated_docs/sample_eventsbe42122.jsonl`
+- Layout source: Store 1 and Store 2 layout PNG files in `updated_docs`
+- POS source: `updated_docs/POS - sample transactionsb1e826f.csv`
+- CCTV source: Store 1 and Store 2 MP4 clips nested under `updated_docs`
+- Sample event source: `updated_docs/sample_eventsbe42122.jsonl`, translated from source names such as `entry`, `zone_entered`, and `queue_completed` into the required event catalogue
 
 ## Live Dashboard
 
@@ -113,6 +114,6 @@ Recommended Render settings:
 - Start command: `python -m uvicorn app.main:app --host 0.0.0.0 --port $PORT`
 - Environment:
   - `AUTO_SEED_DEMO=true`
-  - `DEFAULT_STORE_ID=ST1008`
+  - `DEFAULT_STORE_ID=STORE_BLR_002`
 
 The live dashboard path is `/dashboard`.

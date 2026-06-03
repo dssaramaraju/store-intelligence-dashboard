@@ -6,9 +6,9 @@ I chose an OpenCV-based dataset-aware detector for the submitted repository and 
 
 Reasoning:
 
-- The available dataset has POS transactions and CCTV videos, but no ready-made labels. A heavyweight model would produce boxes that are hard to verify without ground truth, so I used an explainable OpenCV motion detector first.
+- The available dataset has POS transactions, nested Store 1/Store 2 CCTV videos, layout PNGs, and source-style sample events, but no ready-made labels. A heavyweight model would produce boxes that are hard to verify without ground truth, so I used an explainable OpenCV motion detector first.
 - The scoring API requires structured events, not raw boxes, so schema correctness and edge-case behavior matter most for this build.
-- The generator reads real Brigade CCTV frames and POS timestamps, then emits hard cases: group-like near-simultaneous entries, staff movement, re-entry, partial-occlusion confidence, queue buildup, empty-store behavior, abandonment, and conversions.
+- The generator reads real updated-docs CCTV frames and POS timestamps, then emits hard cases: group-like near-simultaneous entries, staff movement, re-entry, partial-occlusion confidence, queue buildup, empty-store behavior, abandonment, and conversions.
 
 If I had the clips, I would start with YOLOv8 for person detection because it is fast, well documented, and easy to containerise. I would pair it with ByteTrack because retail CCTV has frequent short occlusions and ByteTrack handles low-confidence boxes better than a pure high-confidence tracker. For re-entry I would add OSNet embeddings and a short time-window trajectory matcher.
 
@@ -24,6 +24,17 @@ Examples:
 - Staff evidence uses `metadata.uniform_match`.
 
 This avoids schema drift while still supporting metrics, funnel, heatmap, and anomalies. I also chose UUIDv5 event IDs in the detector because the same clip/frame/session should produce the same event ID across retries. That makes `/events/ingest` naturally idempotent.
+
+For the new `updated_docs/sample_eventsbe42122.jsonl` file, I added a normalizer because its rows use source names such as `entry`, `exit`, `zone_entered`, `zone_exited`, `queue_completed`, and `queue_abandoned`. The normalizer maps them into the required catalogue:
+
+- `entry` -> `ENTRY`
+- `exit` -> `EXIT`
+- `zone_entered` -> `ZONE_ENTER`
+- `zone_exited` -> `ZONE_EXIT`
+- `queue_completed` -> `BILLING_QUEUE_JOIN` plus converted billing `ZONE_DWELL`
+- `queue_abandoned` -> `BILLING_QUEUE_JOIN` plus `BILLING_QUEUE_ABANDON`
+
+I kept original values such as source event type, age bucket, group size, zone name, queue wait, and queue position in metadata so the translation is inspectable.
 
 ## 3. API Storage Choice
 
@@ -60,3 +71,5 @@ AI suggested adding a separate `PURCHASE` event for conversion. I rejected that 
 AI suggested adding Redis for live dashboard updates. I rejected it for this take-home because polling every three seconds is enough to prove that the detector and API are connected, and it keeps `docker compose up` simple.
 
 AI suggested hiding low-confidence detections below a threshold. I rejected that because the problem statement explicitly says low-confidence detections should be flagged rather than silently dropped.
+
+AI suggested renaming the dataset files to match the old project paths. I rejected that because reviewers should be able to drop the supplied `updated_docs` folder into the repo and run the pipeline as-is. I instead made the adapters discover suffixed POS/sample-event filenames and recursive MP4 files.

@@ -14,7 +14,7 @@ import json
 
 from datetime import datetime, timezone
 
-from pipeline.detect import detect_from_inputs, generate_demo_events, generate_events_from_cctv
+from pipeline.detect import detect_from_inputs, generate_demo_events, generate_events_from_cctv, load_sample_events
 from pipeline.emit import write_jsonl
 from pipeline.layout import DEFAULT_LAYOUT, default_store, ensure_layout_json, load_layout
 from pipeline.pos import load_pos_transactions
@@ -32,10 +32,10 @@ def test_demo_detector_emits_required_edge_cases():
     assert any(event.metadata.get("converted") is True for event in events)
 
 
-def test_default_layout_matches_brigade_dataset():
+def test_default_layout_matches_updated_docs_dataset():
     store = default_store(DEFAULT_LAYOUT)
-    assert store["store_id"] == "ST1008"
-    assert any(camera["camera_id"] == "CAM_3" and "BILLING" in camera["covers_zones"] for camera in store["cameras"])
+    assert store["store_id"] == "STORE_BLR_002"
+    assert any(camera["camera_id"] == "CAM_BILL_01" and "BILLING" in camera["covers_zones"] for camera in store["cameras"])
     assert any(zone["zone_id"] == "ENTRY_THRESHOLD" for zone in store["zones"])
 
 
@@ -59,12 +59,31 @@ def test_layout_pos_video_and_emit_adapters(tmp_path):
     output = tmp_path / "events.jsonl"
 
     assert layout_path.exists()
-    assert layout["stores"][0]["store_id"] == "ST1008"
+    assert layout["stores"][0]["store_id"] == "STORE_BLR_002"
     assert [camera_id_for_video(path) for path in videos] == ["CAM_1", "CAM_3"]
     assert transactions[0]["basket_value_inr"] == 274.36
     assert any(event.metadata.get("transaction_id") == "INV1" for event in events)
     assert write_jsonl(events, output) == len(events)
-    assert json.loads(output.read_text(encoding="utf-8").splitlines()[0])["store_id"] == "ST1008"
+    assert json.loads(output.read_text(encoding="utf-8").splitlines()[0])["store_id"] == "STORE_BLR_002"
+
+
+def test_updated_docs_sample_events_are_normalized(tmp_path):
+    data = tmp_path / "data"
+    data.mkdir()
+    (data / "sample_eventsbe42122.jsonl").write_text(
+        '{"event_type":"entry","id_token":"ID_60001","store_code":"store_1076","camera_id":"cam1",'
+        '"event_timestamp":"2026-03-08T18:10:05.120000","is_staff":false}\n'
+        '{"queue_event_id":"q1","event_type":"queue_completed","track_id":102,"store_id":"ST1076",'
+        '"camera_id":"PURPLLE_MUM_1076_CAM6","zone_id":"PURPLLE_MUM_1076_Z_BILLING_01",'
+        '"queue_join_ts":"2026-03-08T18:13:05.080000","queue_exit_ts":"2026-03-08T18:15:31.840000",'
+        '"wait_seconds":8,"queue_position_at_join":2,"abandoned":false}\n',
+        encoding="utf-8",
+    )
+
+    events = load_sample_events(data)
+    assert {event.event_type.value for event in events} == {"ENTRY", "BILLING_QUEUE_JOIN", "ZONE_DWELL"}
+    assert all(event.store_id == "ST1076" for event in events)
+    assert any(event.metadata.get("source_schema") == "updated_docs" for event in events)
 
 
 def test_cctv_events_emit_zone_exit_and_cross_camera_match():

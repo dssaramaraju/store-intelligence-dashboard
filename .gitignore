@@ -7,5 +7,6 @@ htmlcov/
 data/*
 !data/
 !data/README.md
+updated_docs/
 events.jsonl
 .venv/

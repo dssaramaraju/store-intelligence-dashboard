@@ -22,7 +22,7 @@ async def lifespan(_: FastAPI):
     if os.getenv("AUTO_SEED_DEMO", "true").lower() in {"1", "true", "yes"} and not has_events():
         from pipeline.detect import generate_demo_events
 
-        insert_events(generate_demo_events(os.getenv("DEFAULT_STORE_ID", "ST1008")))
+        insert_events(generate_demo_events(os.getenv("DEFAULT_STORE_ID", "STORE_BLR_002")))
     yield
 
 
@@ -84,7 +84,7 @@ def metrics(store_id: str):
 
 @app.get("/metrics")
 def default_metrics():
-    return compute_metrics(os.getenv("DEFAULT_STORE_ID", "ST1008"))
+    return compute_metrics(os.getenv("DEFAULT_STORE_ID", "STORE_BLR_002"))
 
 
 @app.get("/stores/{store_id}/funnel")
@@ -128,13 +128,27 @@ def dashboard():
     section { background: white; border: 1px solid #dde3ef; border-radius: 8px; padding: 16px; }
     h1 { margin: 0; font-size: 24px; }
     h2 { margin: 0 0 12px; font-size: 16px; }
+    .subhead { margin-top: 6px; opacity: 0.9; }
+    .toolbar { padding: 16px 24px 0; display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+    .toolbar button { border: 1px solid #c8d1e3; background: white; border-radius: 6px; padding: 8px 10px; cursor: pointer; }
+    .toolbar button.active { background: #172033; color: white; border-color: #172033; }
+    .note { color: #506078; font-size: 13px; }
     .metric { font-size: 32px; font-weight: 700; }
     pre { white-space: pre-wrap; font-size: 12px; }
   </style>
 </head>
 <body>
-  <header><h1>Store Intelligence Dashboard</h1><div id="status">Store ST1008 | Live metrics ready</div></header>
+  <header>
+    <h1>Store Intelligence Dashboard</h1>
+    <div id="status" class="subhead">updated_docs dataset | Live metrics ready</div>
+  </header>
+  <div class="toolbar">
+    <strong>Store</strong>
+    <div id="stores"></div>
+    <span class="note">ST1076 = normalized sample events. STORE_BLR_002 = CCTV/POS generated stream.</span>
+  </div>
   <main>
+    <section><h2>Total Events</h2><div class="metric" id="totalEvents">0</div></section>
     <section><h2>Visitors</h2><div class="metric" id="visitors">0</div></section>
     <section><h2>Conversion</h2><div class="metric" id="conversion">0%</div></section>
     <section><h2>Queue Depth</h2><div class="metric" id="queue">0</div></section>
@@ -145,7 +159,27 @@ def dashboard():
     <section><h2>Anomalies</h2><pre id="anomalies"></pre></section>
   </main>
   <script>
-    const store = new URLSearchParams(location.search).get('store') || 'ST1008';
+    let store = new URLSearchParams(location.search).get('store') || 'STORE_BLR_002';
+    function setStore(nextStore) {
+      store = nextStore;
+      const url = new URL(location.href);
+      url.searchParams.set('store', store);
+      history.replaceState(null, '', url);
+      refresh();
+    }
+    function renderStoreButtons(health) {
+      const knownStores = Object.keys(health.stores || {});
+      if (!knownStores.includes('STORE_BLR_002')) knownStores.push('STORE_BLR_002');
+      if (!knownStores.includes('ST1076')) knownStores.push('ST1076');
+      stores.innerHTML = '';
+      knownStores.sort().forEach((item) => {
+        const button = document.createElement('button');
+        button.textContent = item;
+        button.className = item === store ? 'active' : '';
+        button.onclick = () => setStore(item);
+        stores.appendChild(button);
+      });
+    }
     async function refresh() {
       try {
         const [m, f, h, a, q, health] = await Promise.all([
@@ -156,6 +190,8 @@ def dashboard():
           fetch(`/stores/${store}/quality`).then(r => r.json()),
           fetch('/health').then(r => r.json())
         ]);
+        renderStoreButtons(health);
+        totalEvents.textContent = q.total_events || 0;
         visitors.textContent = m.unique_visitors;
         conversion.textContent = Math.round(m.conversion_rate * 100) + '%';
         queue.textContent = m.avg_queue_depth;
@@ -170,7 +206,7 @@ def dashboard():
           cameras: q.camera_event_counts
         }, null, 2);
         anomalies.textContent = JSON.stringify(a, null, 2);
-        status.textContent = `${store} | ${health.status} | updated ${new Date().toLocaleTimeString()}`;
+        status.textContent = `updated_docs dataset | ${store} | ${health.status} | updated ${new Date().toLocaleTimeString()}`;
       } catch (error) {
         status.textContent = `${store} | API connection issue`;
       }

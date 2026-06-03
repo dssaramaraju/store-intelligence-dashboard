@@ -11,7 +11,7 @@ VIDEO_EXTENSIONS = {".mp4", ".mov", ".avi", ".mkv"}
 def discover_videos(input_dir: Path) -> list[Path]:
     cctv_dir = input_dir / "cctv"
     if not cctv_dir.exists():
-        return []
+        return sorted(path for path in input_dir.rglob("*") if path.suffix.lower() in VIDEO_EXTENSIONS)
     return sorted(path for path in cctv_dir.iterdir() if path.suffix.lower() in VIDEO_EXTENSIONS)
 
 
@@ -23,9 +23,14 @@ def camera_id_for_video(path: Path) -> str:
 
 
 def camera_role(camera_id: str) -> str:
-    if camera_id in {"CAM_1", "CAM_5"}:
+    normalized = camera_id.upper()
+    if "ENTRY" in normalized:
         return "entry"
-    if camera_id == "CAM_3":
+    if "BILL" in normalized:
+        return "billing"
+    if normalized in {"CAM_1", "CAM_5"}:
+        return "entry"
+    if normalized == "CAM_3":
         return "billing"
     return "floor"
 

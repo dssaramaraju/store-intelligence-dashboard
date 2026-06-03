@@ -32,7 +32,10 @@ def _amount(row: dict[str, str]) -> float:
 def load_pos_transactions(input_dir: Path) -> list[dict[str, Any]]:
     path = input_dir / "pos_transactions.csv"
     if not path.exists():
-        return []
+        matches = sorted(input_dir.rglob("*pos*.csv"))
+        if not matches:
+            return []
+        path = matches[0]
     transactions: list[dict[str, Any]] = []
     with path.open("r", encoding="utf-8-sig", newline="") as handle:
         for row in csv.DictReader(handle):
@@ -42,8 +45,8 @@ def load_pos_transactions(input_dir: Path) -> list[dict[str, Any]]:
             transactions.append(
                 {
                     "transaction_id": row.get("invoice_number") or row.get("transaction_id") or row.get("order_id"),
-                    "store_id": row.get("store_id") or "ST1008",
-                    "store_name": row.get("store_name") or "Brigade_Bangalore",
+                    "store_id": row.get("store_id") or "STORE_BLR_002",
+                    "store_name": row.get("store_name") or "Updated Challenge Store",
                     "timestamp": timestamp,
                     "basket_value_inr": _amount(row),
                     "invoice_type": row.get("invoice_type", "sales"),

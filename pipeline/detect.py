@@ -9,7 +9,7 @@ from pipeline.pos import load_pos_transactions
 from pipeline.video import analyze_videos, camera_role, discover_videos, zone_for_camera
 
 
-DEFAULT_STORE = "ST1008"
+DEFAULT_STORE = "STORE_BLR_002"
 
 
 def _event(
@@ -41,27 +41,213 @@ def _event(
 
 
 def load_sample_events(input_dir: Path) -> list[EventIn]:
-    sample = input_dir / "sample_events.jsonl"
-    if not sample.exists():
+    sample = _first_existing(input_dir, ["sample_events.jsonl", "*sample*events*.jsonl"])
+    if sample is None:
         return []
     events: list[EventIn] = []
     with sample.open("r", encoding="utf-8") as handle:
         for line in handle:
             if line.strip():
-                events.append(EventIn.model_validate(json.loads(line)))
+                source = json.loads(line)
+                try:
+                    events.append(EventIn.model_validate(source))
+                except Exception:
+                    events.extend(normalize_source_event(source))
     return events
 
 
 def detect_from_inputs(input_dir: Path, verbose: bool = False) -> list[EventIn]:
     sampled = load_sample_events(input_dir)
-    if sampled:
-        return sampled
     layout = load_layout(input_dir)
     store = default_store(layout)
     transactions = load_pos_transactions(input_dir)
     videos = discover_videos(input_dir)
     video_activity = analyze_videos(input_dir, verbose=verbose) if videos else []
-    return generate_dataset_events(store, transactions, video_activity)
+    generated = generate_dataset_events(store, transactions, video_activity)
+    if sampled:
+        return sorted(dedupe_events(sampled + generated), key=lambda item: item.timestamp)
+    return generated
+
+
+def _first_existing(input_dir: Path, patterns: list[str]) -> Path | None:
+    for pattern in patterns:
+        direct = input_dir / pattern
+        if direct.exists():
+            return direct
+        matches = sorted(input_dir.rglob(pattern))
+        if matches:
+            return matches[0]
+    return None
+
+
+def _source_timestamp(source: dict, *keys: str) -> datetime:
+    for key in keys:
+        value = source.get(key)
+        if value:
+            text = str(value).replace("Z", "+00:00")
+            parsed = datetime.fromisoformat(text)
+            if parsed.tzinfo is None:
+                return parsed.replace(tzinfo=timezone.utc)
+            return parsed.astimezone(timezone.utc)
+    return datetime.now(timezone.utc).replace(microsecond=0)
+
+
+def _source_store_id(source: dict) -> str:
+    value = str(source.get("store_id") or source.get("store_code") or DEFAULT_STORE).upper()
+    if value.startswith("STORE_") and value.removeprefix("STORE_").isdigit():
+        return f"ST{value.removeprefix('STORE_')}"
+    return value
+
+
+def _source_camera_id(source: dict) -> str:
+    value = str(source.get("camera_id") or "CAM_SOURCE").upper().replace(" ", "_").replace("-", "_")
+    if value.startswith("CAM"):
+        return value
+    return f"CAM_{value}"
+
+
+def _source_visitor_id(source: dict) -> str:
+    return str(source.get("id_token") or source.get("track_id") or source.get("visitor_id") or "VIS_SOURCE")
+
+
+def _source_metadata(source: dict, **extra) -> dict:
+    metadata = {
+        "source_schema": "updated_docs",
+        "source_event_type": source.get("event_type"),
+        "cctv_detected": True,
+    }
+    for key in (
+        "gender_pred",
+        "gender",
+        "age_pred",
+        "age",
+        "age_bucket",
+        "is_face_hidden",
+        "group_id",
+        "group_size",
+        "zone_name",
+        "zone_type",
+        "is_revenue_zone",
+        "wait_seconds",
+        "queue_position_at_join",
+        "abandoned",
+    ):
+        if key in source:
+            metadata[key] = source[key]
+    metadata.update(extra)
+    return metadata
+
+
+def normalize_source_event(source: dict) -> list[EventIn]:
+    event_type = str(source.get("event_type", "")).lower()
+    store_id = _source_store_id(source)
+    camera_id = _source_camera_id(source)
+    visitor_id = _source_visitor_id(source)
+    is_staff = bool(source.get("is_staff", False))
+    zone_id = str(source.get("zone_id") or "ENTRY_THRESHOLD")
+
+    if event_type == "entry":
+        return [
+            _event(
+                store_id,
+                camera_id,
+                visitor_id,
+                EventType.ENTRY,
+                _source_timestamp(source, "event_timestamp", "event_time"),
+                "ENTRY_THRESHOLD",
+                is_staff=is_staff,
+                confidence=0.86 if source.get("is_face_hidden") else 0.92,
+                **_source_metadata(source),
+            )
+        ]
+    if event_type == "exit":
+        return [
+            _event(
+                store_id,
+                camera_id,
+                visitor_id,
+                EventType.EXIT,
+                _source_timestamp(source, "event_timestamp", "event_time"),
+                "ENTRY_THRESHOLD",
+                is_staff=is_staff,
+                confidence=0.86 if source.get("is_face_hidden") else 0.92,
+                **_source_metadata(source),
+            )
+        ]
+    if event_type == "zone_entered":
+        return [
+            _event(
+                store_id,
+                camera_id,
+                visitor_id,
+                EventType.ZONE_ENTER,
+                _source_timestamp(source, "event_time"),
+                zone_id,
+                confidence=0.9,
+                **_source_metadata(source),
+            )
+        ]
+    if event_type == "zone_exited":
+        return [
+            _event(
+                store_id,
+                camera_id,
+                visitor_id,
+                EventType.ZONE_EXIT,
+                _source_timestamp(source, "event_time"),
+                zone_id,
+                confidence=0.9,
+                **_source_metadata(source),
+            )
+        ]
+    if event_type in {"queue_completed", "queue_abandoned"}:
+        join_time = _source_timestamp(source, "queue_join_ts", "event_time")
+        exit_time = _source_timestamp(source, "queue_exit_ts", "queue_served_ts", "event_time")
+        wait_ms = int(float(source.get("wait_seconds") or 0) * 1000)
+        queue_depth = int(source.get("queue_position_at_join") or 1)
+        events = [
+            _event(
+                store_id,
+                camera_id,
+                visitor_id,
+                EventType.BILLING_QUEUE_JOIN,
+                join_time,
+                "BILLING",
+                confidence=0.9,
+                **_source_metadata(source, queue_depth=queue_depth),
+            )
+        ]
+        if event_type == "queue_abandoned" or source.get("abandoned") is True:
+            events.append(
+                _event(
+                    store_id,
+                    camera_id,
+                    visitor_id,
+                    EventType.BILLING_QUEUE_ABANDON,
+                    exit_time,
+                    "BILLING",
+                    dwell_ms=wait_ms,
+                    confidence=0.88,
+                    **_source_metadata(source, queue_depth=queue_depth),
+                )
+            )
+        else:
+            events.append(
+                _event(
+                    store_id,
+                    camera_id,
+                    visitor_id,
+                    EventType.ZONE_DWELL,
+                    exit_time,
+                    "BILLING",
+                    dwell_ms=max(wait_ms, 1),
+                    confidence=0.9,
+                    **_source_metadata(source, queue_depth=queue_depth, converted=True),
+                )
+            )
+        return events
+
+    return []
 
 
 def generate_dataset_events(store: dict, transactions: list[dict], video_activity: list[dict]) -> list[EventIn]:
